@@ -10,7 +10,7 @@ TrueNAS. The useful path is:
 The image name this repo is prepared for is:
 
 ```text
-ghcr.io/endless1233214/vuln-scanner-thingy:latest
+ghcr.io/endless1233214/valnurability-scanner-with-web-ui:latest
 ```
 
 ## TrueNAS SCALE Install Via YAML
@@ -59,7 +59,7 @@ Do not publish this UI to the internet. Keep it LAN-only or behind Tailscale/VPN
 When a new commit lands on `main`, GitHub Actions builds and pushes:
 
 ```text
-ghcr.io/endless1233214/vuln-scanner-thingy:latest
+ghcr.io/endless1233214/valnurability-scanner-with-web-ui:latest
 ```
 
 In TrueNAS, use pull policy `Always` for the custom app so redeploying pulls the

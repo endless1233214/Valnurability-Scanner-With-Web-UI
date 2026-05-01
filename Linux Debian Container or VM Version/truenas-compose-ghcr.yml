@@ -1,6 +1,6 @@
 services:
   scanner:
-    image: ghcr.io/endless1233214/vuln-scanner-thingy:latest
+    image: ghcr.io/endless1233214/valnurability-scanner-with-web-ui:latest
     pull_policy: always
     container_name: free-vuln-scanner
     network_mode: host

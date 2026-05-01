@@ -29,4 +29,4 @@ jobs:
         with:
           context: ./Linux Debian Container or VM Version
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/vuln-scanner-thingy:latest
+          tags: ghcr.io/${{ github.repository_owner }}/valnurability-scanner-with-web-ui:latest

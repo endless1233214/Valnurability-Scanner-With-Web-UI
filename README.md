@@ -54,7 +54,7 @@ private VPN.
 This repo is prepared to publish a container image to:
 
 ```text
-ghcr.io/endless1233214/vuln-scanner-thingy:latest
+ghcr.io/endless1233214/valnurability-scanner-with-web-ui:latest
 ```
 
 Use [TRUENAS.md](TRUENAS.md) for the TrueNAS custom app path.

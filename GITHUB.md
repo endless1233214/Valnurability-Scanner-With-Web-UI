@@ -3,13 +3,13 @@
 This repo is ready to publish to GitHub as:
 
 ```text
-endless1233214/vuln-scanner-thingy
+endless1233214/Valnurability-Scanner-With-Web-UI
 ```
 
 The local git remote is already set to:
 
 ```text
-git@github.com:endless1233214/vuln-scanner-thingy.git
+git@github.com:endless1233214/Valnurability-Scanner-With-Web-UI.git
 ```
 
 ## Manual Path
@@ -17,7 +17,7 @@ git@github.com:endless1233214/vuln-scanner-thingy.git
 1. Create a new empty repo on GitHub named:
 
 ```text
-vuln-scanner-thingy
+Valnurability-Scanner-With-Web-UI
 ```
 
 2. Do not add a README, license, or `.gitignore` on GitHub. This local repo
@@ -36,7 +36,7 @@ If you install and authenticate GitHub CLI:
 ```sh
 brew install gh
 gh auth login
-gh repo create endless1233214/vuln-scanner-thingy --private --source=. --remote=origin --push
+gh repo create endless1233214/Valnurability-Scanner-With-Web-UI --private --source=. --remote=origin --push
 ```
 
 ## GHCR Image
@@ -44,7 +44,7 @@ gh repo create endless1233214/vuln-scanner-thingy --private --source=. --remote=
 After the first push to `main`, GitHub Actions should build:
 
 ```text
-ghcr.io/endless1233214/vuln-scanner-thingy:latest
+ghcr.io/endless1233214/valnurability-scanner-with-web-ui:latest
 ```
 
 For TrueNAS, the easiest path is a public GHCR package. If the repo or package
