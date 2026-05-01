@@ -133,3 +133,12 @@ Fast web/admin
 ```
 
 Leave intrusive/destructive templates off.
+
+For one host, use a plain IP:
+
+```text
+192.168.1.144
+```
+
+Do not use `192.168.1.144/24` unless you mean the entire `192.168.1.0/24`
+network. The UI now blocks that common CIDR mistake.

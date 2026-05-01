@@ -70,11 +70,15 @@ Use only systems you own or have permission to test.
 Examples:
 
 ```text
+192.168.1.144
 192.168.1.0/24
-192.168.1.10
 https://homeassistant.local:8123
 https://example.internal
 ```
+
+For one host, use a plain IP like `192.168.1.144`. A CIDR such as
+`192.168.1.0/24` means the whole subnet. The UI blocks easy mistakes like
+`192.168.1.144/24`, because that expands to `192.168.1.0/24`.
 
 ## Scan Profiles
 

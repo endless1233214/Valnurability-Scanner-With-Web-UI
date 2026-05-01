@@ -2,6 +2,7 @@
 import argparse
 import datetime as dt
 import html
+import ipaddress
 import json
 import os
 import re
@@ -125,6 +126,28 @@ def append_log(job, message):
         handle.write(line + "\n")
 
 
+def validate_target_item(item):
+    parsed = urlparse(item)
+    host_part = parsed.hostname if parsed.scheme in ("http", "https") and parsed.hostname else item
+
+    if "/" not in host_part:
+        return
+
+    try:
+        iface = ipaddress.ip_interface(host_part)
+    except ValueError:
+        return
+
+    network = iface.network
+    is_single_host = network.prefixlen == network.max_prefixlen
+    if not is_single_host and iface.ip != network.network_address:
+        raise ValueError(
+            f"{item} expands to {network}, not just {iface.ip}. "
+            f"Use {iface.ip} for one host, {iface.ip}/{network.max_prefixlen} for one host with CIDR, "
+            f"or {network} if you intentionally want the whole range."
+        )
+
+
 def normalize_targets(raw):
     lines = []
     for line in raw.replace(",", "\n").splitlines():
@@ -133,6 +156,7 @@ def normalize_targets(raw):
             continue
         if len(item) > 300 or not SAFE_TARGET_RE.match(item):
             raise ValueError(f"Unsafe or unsupported target text: {item!r}")
+        validate_target_item(item)
         lines.append(item)
 
     if not lines:
@@ -153,7 +177,16 @@ def normalize_targets(raw):
     return lines, sorted(set(nmap_targets)), sorted(set(seed_urls))
 
 
+def is_canceled(job):
+    with JOBS_LOCK:
+        return bool(job.get("cancel_requested"))
+
+
 def run_command(job, cmd, cwd):
+    if is_canceled(job):
+        append_log(job, "[canceled] Skipping command because the job was canceled.")
+        return -15
+
     append_log(job, "")
     append_log(job, f"$ {shlex.join(cmd)}")
     started = time.time()
@@ -172,14 +205,49 @@ def run_command(job, cmd, cwd):
         append_log(job, f"[missing] {cmd[0]} is not installed or not on PATH.")
         return 127
 
+    with JOBS_LOCK:
+        job["current_process"] = proc
+
     assert proc.stdout is not None
-    for line in proc.stdout:
-        append_log(job, line)
+    try:
+        for line in proc.stdout:
+            append_log(job, line)
+    finally:
+        with JOBS_LOCK:
+            if job.get("current_process") is proc:
+                job["current_process"] = None
 
     rc = proc.wait()
     elapsed = time.time() - started
-    append_log(job, f"[exit {rc}] {cmd[0]} finished in {elapsed:.1f}s")
+    if is_canceled(job):
+        append_log(job, f"[canceled] {cmd[0]} stopped after {elapsed:.1f}s")
+    else:
+        append_log(job, f"[exit {rc}] {cmd[0]} finished in {elapsed:.1f}s")
     return rc
+
+
+def cancel_job(job_id):
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+        if not job:
+            raise KeyError(job_id)
+        if job["status"] not in ("queued", "running"):
+            return public_job(job)
+        job["cancel_requested"] = True
+        proc = job.get("current_process")
+        job["updated_at"] = now_iso()
+
+    append_log(job, "[canceled] Cancel requested by user.")
+
+    if proc and proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+    set_job(job, status="canceled")
+    return public_job(job)
 
 
 def host_label(host):
@@ -341,6 +409,9 @@ def run_scan(job, request):
         report_dir = job["report_dir"]
 
         raw_targets, nmap_targets, seed_urls = normalize_targets(request["targets"])
+        if is_canceled(job):
+            set_job(job, status="canceled")
+            return
         profile_name = request.get("profile", "fast-web")
         profile = PROFILES.get(profile_name, PROFILES["fast-web"])
         custom_ports = request.get("ports", "").strip()
@@ -381,6 +452,9 @@ def run_scan(job, request):
             nmap_cmd.append("-Pn")
         nmap_cmd.extend(["-oA", str(nmap_prefix), "-iL", str(nmap_targets_path)])
         rc = run_command(job, nmap_cmd, report_dir)
+        if is_canceled(job):
+            set_job(job, status="canceled")
+            return
         if rc not in (0, 1):
             append_log(job, "[warn] Nmap returned a non-zero exit. Continuing with whatever output exists.")
 
@@ -392,6 +466,9 @@ def run_scan(job, request):
 
         if update_templates and tool_path("nuclei"):
             run_command(job, ["nuclei", "-update-templates"], report_dir)
+            if is_canceled(job):
+                set_job(job, status="canceled")
+                return
 
         nuclei_out = report_dir / "nuclei.txt"
         nuclei_out.touch(exist_ok=True)
@@ -411,6 +488,9 @@ def run_scan(job, request):
                 if not include_intrusive:
                     nuclei_cmd.extend(["-exclude-tags", "destructive,dos,intrusive"])
                 run_command(job, nuclei_cmd, report_dir)
+                if is_canceled(job):
+                    set_job(job, status="canceled")
+                    return
         elif run_nuclei and not web_targets:
             append_log(job, "No web targets discovered, so Nuclei was skipped.")
         else:
@@ -435,6 +515,9 @@ def run_scan(job, request):
         set_job(job, status="done", summary=summary, artifacts=artifacts)
         append_log(job, f"Report: {artifacts['report']}")
     except Exception as exc:
+        if is_canceled(job):
+            set_job(job, status="canceled")
+            return
         append_log(job, f"[error] {exc}")
         set_job(job, status="failed", error=str(exc))
 
@@ -456,6 +539,8 @@ def start_job(request):
         "summary": {},
         "artifacts": {},
         "report_dir": report_dir,
+        "cancel_requested": False,
+        "current_process": None,
     }
     with JOBS_LOCK:
         JOBS[job_id] = job
@@ -608,6 +693,22 @@ INDEX_HTML = r"""<!doctype html>
       line-height: 1.35;
       margin: 0;
     }
+    .target-hint {
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: #f8fafb;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+      padding: 8px 9px;
+      margin-top: -6px;
+    }
+    .target-hint.warn {
+      color: var(--warn);
+      background: #fff7e5;
+      border-color: #d6b46b;
+      font-weight: 650;
+    }
     .jobs {
       display: grid;
       grid-template-rows: auto minmax(260px, 1fr);
@@ -689,8 +790,22 @@ INDEX_HTML = r"""<!doctype html>
       border: 1px solid var(--line);
     }
     .status.done { color: var(--ok); background: #edf8f1; border-color: #8ec2a6; }
+    .status.canceled { color: var(--muted); background: #eef3f7; border-color: var(--line); }
     .status.failed { color: var(--danger); background: #fff1f1; border-color: #dbaaaa; }
     .status.running, .status.queued { color: var(--warn); background: #fff7e5; border-color: #d6b46b; }
+    .topline {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .cancel {
+      background: var(--danger);
+      padding: 7px 10px;
+      font-size: 12px;
+    }
+    .cancel:hover { background: #7d2323; }
     .links {
       display: flex;
       flex-wrap: wrap;
@@ -739,8 +854,9 @@ INDEX_HTML = r"""<!doctype html>
       <form id="scanForm">
         <label>
           Targets
-          <textarea id="targets" name="targets" spellcheck="false">192.168.1.0/24</textarea>
+          <textarea id="targets" name="targets" spellcheck="false" placeholder="192.168.1.144&#10;192.168.1.0/24"></textarea>
         </label>
+        <div class="target-hint" id="targetHint">Use a plain IP for one host. Use a network address with CIDR only when you want a range.</div>
         <div class="row">
           <label>
             Profile
@@ -801,9 +917,66 @@ INDEX_HTML = r"""<!doctype html>
       });
       if (!res.ok) {
         const text = await res.text();
-        throw new Error(text || `HTTP ${res.status}`);
+        try {
+          const data = JSON.parse(text);
+          throw new Error(data.error || text || `HTTP ${res.status}`);
+        } catch (err) {
+          if (err instanceof SyntaxError) throw new Error(text || `HTTP ${res.status}`);
+          throw err;
+        }
       }
       return res.json();
+    }
+
+    function ipToInt(ip) {
+      const parts = ip.split('.').map(Number);
+      if (parts.length !== 4 || parts.some(part => !Number.isInteger(part) || part < 0 || part > 255)) return null;
+      return parts.reduce((acc, part) => ((acc << 8) | part) >>> 0, 0) >>> 0;
+    }
+
+    function intToIp(value) {
+      return [24, 16, 8, 0].map(shift => (value >>> shift) & 255).join('.');
+    }
+
+    function cidrHintForItem(item) {
+      const match = item.match(/^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/);
+      if (!match) return null;
+      const ip = ipToInt(match[1]);
+      const prefix = Number(match[2]);
+      if (ip === null || prefix < 0 || prefix > 32) return null;
+      if (prefix === 32) return { kind: 'ok', text: `${match[1]}/32 scans one host.` };
+
+      const size = 2 ** (32 - prefix);
+      const mask = (0xffffffff << (32 - prefix)) >>> 0;
+      const network = (ip & mask) >>> 0;
+      const last = (network + size - 1) >>> 0;
+
+      if (ip !== network) {
+        return {
+          kind: 'warn',
+          text: `${item} means ${intToIp(network)}/${prefix}, about ${size} addresses (${intToIp(network)}-${intToIp(last)}). Use ${match[1]} for just that one host.`
+        };
+      }
+
+      return { kind: 'ok', text: `${item} scans about ${size} addresses (${intToIp(network)}-${intToIp(last)}).` };
+    }
+
+    function updateTargetHint() {
+      const hint = document.getElementById('targetHint');
+      const raw = document.getElementById('targets').value;
+      const items = raw.split(/[,\n]/).map(item => item.trim()).filter(Boolean);
+      const hints = items.map(cidrHintForItem).filter(Boolean);
+      const warning = hints.find(item => item.kind === 'warn');
+      if (warning) {
+        hint.className = 'target-hint warn';
+        hint.textContent = warning.text;
+      } else if (hints.length) {
+        hint.className = 'target-hint';
+        hint.textContent = hints.map(item => item.text).join(' ');
+      } else {
+        hint.className = 'target-hint';
+        hint.textContent = 'Use a plain IP for one host. Use a network address with CIDR only when you want a range.';
+      }
     }
 
     async function loadTools() {
@@ -854,8 +1027,12 @@ INDEX_HTML = r"""<!doctype html>
       const links = Object.entries(artifacts).map(([name, href]) => (
         `<a href="${esc(href)}" target="_blank" rel="noreferrer">${esc(name)}</a>`
       )).join('');
+      const canCancel = job.status === 'running' || job.status === 'queued';
       details.innerHTML = `
-        <span class="status ${esc(job.status)}">${esc(job.status)}</span>
+        <div class="topline">
+          <span class="status ${esc(job.status)}">${esc(job.status)}</span>
+          ${canCancel ? `<button class="cancel" data-cancel="${esc(job.id)}" type="button">Cancel Scan</button>` : ''}
+        </div>
         <div class="metrics">
           <div class="metric"><b>${esc(s.hosts_seen || 0)}</b><span>hosts up</span></div>
           <div class="metric"><b>${esc(s.open_ports || 0)}</b><span>open ports</span></div>
@@ -865,8 +1042,19 @@ INDEX_HTML = r"""<!doctype html>
         <div class="links">${links}</div>
         <pre>${esc((job.log || []).join('\n'))}</pre>
       `;
+      const cancel = details.querySelector('[data-cancel]');
+      if (cancel) cancel.addEventListener('click', () => cancelJob(cancel.dataset.cancel));
       const pre = details.querySelector('pre');
       pre.scrollTop = pre.scrollHeight;
+    }
+
+    async function cancelJob(id) {
+      try {
+        await api(`/api/jobs/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: '{}' });
+        await loadJob(id);
+      } catch (err) {
+        alert(err.message);
+      }
     }
 
     document.getElementById('scanForm').addEventListener('submit', async event => {
@@ -893,6 +1081,9 @@ INDEX_HTML = r"""<!doctype html>
         button.disabled = false;
       }
     });
+
+    document.getElementById('targets').addEventListener('input', updateTargetHint);
+    updateTargetHint();
 
     setInterval(loadJobs, 2500);
     loadTools().catch(console.error);
@@ -989,6 +1180,20 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
+        if parsed.path.startswith("/api/jobs/") and parsed.path.endswith("/cancel"):
+            parts = parsed.path.strip("/").split("/")
+            if len(parts) != 4:
+                self.send_text("not found", status=404)
+                return
+            job_id = unquote(parts[2])
+            try:
+                self.send_json(cancel_job(job_id))
+            except KeyError:
+                self.send_json({"error": "job not found"}, status=404)
+            except Exception as exc:
+                self.send_json({"error": str(exc)}, status=500)
+            return
+
         if parsed.path != "/api/scan":
             self.send_text("not found", status=404)
             return
