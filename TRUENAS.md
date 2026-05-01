@@ -65,3 +65,8 @@ ghcr.io/endless1233214/vuln-scanner-thingy:latest
 In TrueNAS, use pull policy `Always` for the custom app so redeploying pulls the
 new image.
 
+## Public vs Private GHCR
+
+TrueNAS can pull a public GHCR image with no extra work. If the GHCR package is
+private, add registry credentials in TrueNAS or make the package public in
+GitHub's package settings.

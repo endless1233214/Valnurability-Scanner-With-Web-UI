@@ -58,6 +58,7 @@ ghcr.io/endless1233214/vuln-scanner-thingy:latest
 ```
 
 Use [TRUENAS.md](TRUENAS.md) for the TrueNAS custom app path.
+Use [GITHUB.md](GITHUB.md) for the first push and GHCR notes.
 
 ## Good Targets
 
