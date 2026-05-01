@@ -1,0 +1,19 @@
+services:
+  scanner:
+    image: ghcr.io/endless1233214/vuln-scanner-thingy:latest
+    container_name: free-vuln-scanner
+    network_mode: host
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      SCANNER_HOST: 0.0.0.0
+      SCANNER_PORT: "8788"
+      NUCLEI_UPDATE_ON_START: "false"
+    volumes:
+      - /mnt/YOUR_POOL/apps/free-vuln-scanner/reports:/opt/scanner/reports
+      - /mnt/YOUR_POOL/apps/free-vuln-scanner/projectdiscovery:/scanner-data
+    restart: unless-stopped
+

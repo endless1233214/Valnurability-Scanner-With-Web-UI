@@ -1,0 +1,20 @@
+services:
+  scanner:
+    build:
+      context: .
+    container_name: free-vuln-scanner
+    network_mode: host
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      SCANNER_HOST: 0.0.0.0
+      SCANNER_PORT: "8788"
+      NUCLEI_UPDATE_ON_START: "false"
+    volumes:
+      - ./data/reports:/opt/scanner/reports
+      - ./data/projectdiscovery:/scanner-data
+    restart: unless-stopped
+

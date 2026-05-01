@@ -1,0 +1,22 @@
+.DS_Store
+__pycache__/
+*.pyc
+
+# Locally installed scanner binaries. These are rebuilt or downloaded by setup.
+/bin/
+
+# Scan output can include sensitive hostnames, IPs, services, and findings.
+/reports/
+
+# Docker/TrueNAS runtime data.
+**/data/projectdiscovery/*
+**/data/reports/*
+!**/data/projectdiscovery/
+!**/data/reports/
+!**/data/projectdiscovery/.gitkeep
+!**/data/reports/.gitkeep
+
+# Local editor and OS noise.
+.idea/
+.vscode/
+*.swp
