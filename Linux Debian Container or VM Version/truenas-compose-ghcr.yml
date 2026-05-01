@@ -1,6 +1,7 @@
 services:
   scanner:
     image: ghcr.io/endless1233214/vuln-scanner-thingy:latest
+    pull_policy: always
     container_name: free-vuln-scanner
     network_mode: host
     cap_add:
@@ -16,4 +17,3 @@ services:
       - /mnt/YOUR_POOL/apps/free-vuln-scanner/reports:/opt/scanner/reports
       - /mnt/YOUR_POOL/apps/free-vuln-scanner/projectdiscovery:/scanner-data
     restart: unless-stopped
-

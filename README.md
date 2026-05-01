@@ -60,6 +60,9 @@ ghcr.io/endless1233214/vuln-scanner-thingy:latest
 Use [TRUENAS.md](TRUENAS.md) for the TrueNAS custom app path.
 Use [GITHUB.md](GITHUB.md) for the first push and GHCR notes.
 
+The intended setup is the same pattern as PlainNVR: private GitHub repo, GitHub
+Actions publishes `latest` to GHCR, and TrueNAS pulls that image.
+
 ## Good Targets
 
 Use only systems you own or have permission to test.
